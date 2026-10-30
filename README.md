@@ -1,5 +1,7 @@
 # Deploy and Host openGym with Railway
 
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/opengym-v1-self-hosted-workout-tracker?referralCode=20H68q)
+
 openGym is an open-source (AGPL-3.0) gym and body-weight tracker: plan routines, run guided workouts with supersets, warm-ups and cardio, see which muscles you trained and track your weight and PRs. This community template runs openGym 1.4.3 from the official images with an owner account and closed sign-up from the first request.
 
 ## About Hosting openGym
