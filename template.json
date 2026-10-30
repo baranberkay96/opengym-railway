@@ -1,0 +1,219 @@
+{
+ "name": "openGym v1 Self-Hosted Workout Tracker",
+ "description": "Plan routines, log workouts and track body weight on your own server.",
+ "category": "Other",
+ "tags": [
+  "opengym",
+  "fitness",
+  "workout-tracker",
+  "gym",
+  "body-weight",
+  "passkeys",
+  "pwa",
+  "self-hosted"
+ ],
+ "image": "https://cdn.jsdelivr.net/gh/DuarteSantos8/openGym@v1.4.3/frontend/public/icon-512.png",
+ "upstream": {
+  "repo": "DuarteSantos8/openGym",
+  "version": "1.4.3",
+  "commit": "7c8290ca20cb619bf6baa6830ea864d283df305a",
+  "released": "2026-10-26",
+  "images": {
+   "api": "ghcr.io/duartesantos8/opengym-api:1.4.3 (index sha256:21d1fde39470d9c91424db51be64f5dd57c75b0b493345016f1d6e268dceae16)",
+   "web": "ghcr.io/duartesantos8/opengym-web:1.4.3 (index sha256:e77ef879d10549acc88a888e0cd4d566592c5680bee6436b05071678fcf8b512)"
+  },
+  "license": "AGPL-3.0-or-later",
+  "checked": "2026-10-30"
+ },
+ "services": {
+  "openGym": {
+   "icon": "https://cdn.jsdelivr.net/gh/DuarteSantos8/openGym@v1.4.3/frontend/public/icon-512.png",
+   "source": {
+    "repo": "baranberkay96/opengym-railway",
+    "rootDirectory": "/services/web"
+   },
+   "startCommand": null,
+   "preDeployCommand": null,
+   "healthcheckPath": "/api/health",
+   "healthcheckTimeout": 900,
+   "restartPolicyType": "ON_FAILURE",
+   "restartPolicyMaxRetries": 10,
+   "numReplicas": 1,
+   "cronSchedule": null,
+   "publicDomain": true,
+   "targetPort": 8080,
+   "tcpProxy": null,
+   "volume": null,
+   "variables": {
+    "PORT": {
+     "defaultValue": "8080",
+     "description": "Port nginx listens on (Railway's domain and healthcheck) and, in openGym's web image, also the API port it proxies /api to. Keep 8080 on both services.",
+     "required": false
+    },
+    "NGINX_PORT": {
+     "defaultValue": "8080",
+     "description": "Port nginx listens on. Keep it equal to PORT.",
+     "required": false
+    },
+    "BACKEND": {
+     "defaultValue": "${{openGym API.RAILWAY_PRIVATE_DOMAIN}}",
+     "description": "Private host name of the openGym API service; /api is proxied to it.",
+     "required": false
+    },
+    "RESOLVER": {
+     "defaultValue": "auto",
+     "description": "DNS server nginx uses to look up BACKEND. auto reads Railway's from /etc/resolv.conf.",
+     "required": false
+    },
+    "OPENGYM_VERSION": {
+     "defaultValue": "1.4.3",
+     "description": "openGym release for both services (web and API images, used as a build argument). Change it, then redeploy both.",
+     "required": false
+    },
+    "MEDIA_UPLOAD_MAX": {
+     "defaultValue": "48m",
+     "description": "Largest photo or video upload nginx passes to the API (nginx size). Keep it above the API's MEDIA_VIDEO_MAX_MB (40).",
+     "required": false
+    },
+    "OPENGYM_REAL_IP_HEADER": {
+     "defaultValue": "X-Real-IP",
+     "description": "Header Railway's edge puts the visitor address in, so per-address sign-in limits count real visitors. off = every visitor counts as Railway's edge.",
+     "required": false
+    },
+    "NGINX_WORKER_PROCESSES": {
+     "defaultValue": "2",
+     "description": "nginx worker processes (1-64 or auto). auto would start one per host CPU, dozens on Railway.",
+     "required": false
+    }
+   }
+  },
+  "openGym API": {
+   "icon": "https://cdn.jsdelivr.net/gh/DuarteSantos8/openGym@v1.4.3/frontend/public/icon-512.png",
+   "source": {
+    "repo": "baranberkay96/opengym-railway",
+    "rootDirectory": "/services/api"
+   },
+   "startCommand": null,
+   "preDeployCommand": null,
+   "healthcheckPath": "/api/health",
+   "healthcheckTimeout": 300,
+   "restartPolicyType": "ON_FAILURE",
+   "restartPolicyMaxRetries": 10,
+   "numReplicas": 1,
+   "cronSchedule": null,
+   "publicDomain": false,
+   "targetPort": null,
+   "tcpProxy": null,
+   "volume": {
+    "mountPath": "/data",
+    "backupSchedules": [
+     "DAILY",
+     "WEEKLY"
+    ]
+   },
+   "variables": {
+    "PORT": {
+     "defaultValue": "8080",
+     "description": "Port the API listens on (private network and healthcheck). The openGym web service proxies to it; keep 8080 on both services.",
+     "required": false
+    },
+    "DATA_DIR": {
+     "defaultValue": "/data",
+     "description": "Where openGym keeps everything (db.json, per-profile state, uploads, session key, push keys). Must stay on the /data volume.",
+     "required": false
+    },
+    "RP_ID": {
+     "defaultValue": "${{openGym.RAILWAY_PUBLIC_DOMAIN}}",
+     "description": "Host name passkeys are bound to: the domain people open openGym on. Set it and ORIGIN to your custom domain if you add one.",
+     "required": false
+    },
+    "ORIGIN": {
+     "defaultValue": "https://${{openGym.RAILWAY_PUBLIC_DOMAIN}}",
+     "description": "Full https address openGym is served from. Checked on every sign-in and sync; keep it in step with RP_ID.",
+     "required": false
+    },
+    "RP_NAME": {
+     "defaultValue": "openGym",
+     "description": "Name shown in the passkey prompt.",
+     "required": false
+    },
+    "OPENGYM_OWNER_NAME": {
+     "defaultValue": "Owner",
+     "description": "Profile name of the owner (admin) created on the first boot; you sign in with it. openGym cannot rename profiles, so pick your own name before deploying.",
+     "required": false
+    },
+    "OPENGYM_OWNER_PASSWORD": {
+     "defaultValue": "${{secret(24, \"abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789\")}}",
+     "description": "Owner password, generated at deploy. Read on the first boot only; change it later in Settings, Account.",
+     "required": false
+    },
+    "OPENGYM_OWNER_EMAIL": {
+     "defaultValue": "",
+     "description": "Optional e-mail the owner can sign in with instead of the name. openGym never sends mail to it.",
+     "required": false
+    },
+    "INVITE_ONLY": {
+     "defaultValue": "1",
+     "description": "1 = new profiles need an invite code from the admin dashboard (sign-up closed). 0 opens sign-up to anyone with the URL.",
+     "required": false
+    },
+    "ALLOW_GUEST": {
+     "defaultValue": "0",
+     "description": "0 hides 'Continue without account' (browser-only guest mode). 1 shows it.",
+     "required": false
+    },
+    "PASSWORD_LOGIN": {
+     "defaultValue": "1",
+     "description": "1 = name or e-mail plus password sign-in next to passkeys. The owner needs it until they add a passkey.",
+     "required": false
+    },
+    "TRUST_PROXY": {
+     "defaultValue": "1",
+     "description": "Read the visitor address from the headers the openGym web service overwrites, for per-address sign-in limits. Keep 1.",
+     "required": false
+    },
+    "SESSION_DAYS": {
+     "defaultValue": "90",
+     "description": "How long a sign-in lasts, in days (openGym's default). Applies to new sign-ins only.",
+     "required": false
+    },
+    "AUDIT_IP": {
+     "defaultValue": "off",
+     "description": "Visitor addresses in the admin activity log: off, net (network only) or full.",
+     "required": false
+    },
+    "DEFAULT_LANG": {
+     "defaultValue": "",
+     "description": "Optional default language for the sign-in screen and new profiles (en, de, es, fr, pt-BR, ...).",
+     "required": false
+    },
+    "MEDIA_QUOTA_MB": {
+     "defaultValue": "200",
+     "description": "Upload space per profile for exercise and workout photos and videos, in MB (0 = no cap).",
+     "required": false
+    },
+    "MEDIA_MIN_FREE_MB": {
+     "defaultValue": "200",
+     "description": "Uploads are refused when the volume has less free space than this, so workout saves never hit a full disk.",
+     "required": false
+    },
+    "VAPID_SUBJECT": {
+     "defaultValue": "",
+     "description": "Optional contact for push services, e.g. mailto:you@example.com. Empty = ORIGIN.",
+     "required": false
+    },
+    "COACH_DISABLED": {
+     "defaultValue": "0",
+     "description": "1 keeps the optional AI Coach off for good. With 0 it stays off until an admin connects a provider.",
+     "required": false
+    },
+    "OPENGYM_VERSION": {
+     "defaultValue": "${{openGym.OPENGYM_VERSION}}",
+     "description": "Follows OPENGYM_VERSION on the openGym service, so the API and web images are always the same release.",
+     "required": false
+    }
+   }
+  }
+ },
+ "buckets": []
+}

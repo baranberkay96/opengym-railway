@@ -1,0 +1,108 @@
+#!/bin/sh
+# openGym web on Railway (community template, not affiliated with openGym).
+#
+# Sourced by the nginx image's /docker-entrypoint.sh: files ending in .envsh are sourced, so what
+# is exported here reaches 20-envsubst-on-templates.sh, which renders openGym's nginx config
+# right after this file. Runs as uid 101, under `set -e` (and `set -u` once the image's own
+# 15-local-resolvers.envsh has run), so every variable is read with a default. `exit 1` stops the
+# entrypoint before nginx starts. Three Railway adjustments, nothing else of openGym's changes:
+#
+#   RESOLVER   openGym's nginx looks BACKEND up per request through RESOLVER, by default
+#              Docker's 127.0.0.11, which does not exist on Railway. "auto" (the default here)
+#              uses the name servers in /etc/resolv.conf, IPv6 ones in brackets as nginx wants.
+#   real IP    Railway's edge sends the visitor's address in X-Real-IP. With
+#              OPENGYM_REAL_IP_HEADER set (default X-Real-IP), nginx's realip module takes the
+#              client address from that header, so the X-Forwarded-For that openGym's API reads
+#              (TRUST_PROXY=1, for its per-address sign-in limits) names the visitor and not
+#              Railway's edge. "off" keeps upstream's behaviour.
+#   workers    nginx.conf says `worker_processes auto`, one per host CPU (dozens on Railway).
+#              NGINX_WORKER_PROCESSES (default 2) replaces it.
+
+_og_log() { echo "17-railway-opengym.envsh: $*"; }
+_og_fail() {
+  echo "17-railway-opengym.envsh: ERROR: $*" >&2
+  exit 1
+}
+# True when $1 holds a character outside the extended-regex bracket list $2 (both values end up
+# unquoted in nginx's config, so anything but host names and addresses is refused).
+_og_has_other() {
+  case "$1" in
+    *'
+'*) return 0 ;;
+  esac
+  printf '%s' "$1" | grep -Eq "[^$2]"
+}
+
+# --- where /api goes ------------------------------------------------------------------------
+_og_backend=${BACKEND:-}
+if [ -z "$_og_backend" ]; then
+  _og_fail "BACKEND is empty. Set it to the RAILWAY_PRIVATE_DOMAIN of the openGym API service."
+fi
+if _og_has_other "$_og_backend" 'A-Za-z0-9._-'; then
+  _og_fail "BACKEND=$_og_backend is not a host name (letters, digits, dots and hyphens)."
+fi
+if [ "$_og_backend" = api ]; then
+  _og_log "WARNING: BACKEND=api is upstream's Docker Compose name; on Railway use the openGym API service's private domain."
+fi
+for _og_port in "${PORT:-}" "${NGINX_PORT:-}"; do
+  case "$_og_port" in
+    '' | *[!0-9]*) _og_fail "PORT and NGINX_PORT must be port numbers (PORT=${PORT:-}, NGINX_PORT=${NGINX_PORT:-})." ;;
+  esac
+done
+if [ "${PORT}" != "${NGINX_PORT}" ]; then
+  _og_log "WARNING: nginx listens on NGINX_PORT=${NGINX_PORT}, but Railway's healthcheck probes PORT=${PORT}, which openGym also uses as the API's port. Keep both at the API's PORT."
+fi
+
+# --- DNS for BACKEND ------------------------------------------------------------------------
+case "${RESOLVER:-auto}" in
+  '' | auto | 127.0.0.11)
+    _og_ns=$(awk '$1 == "nameserver" && $2 !~ /%/ { if ($2 ~ /:/) printf "[%s] ", $2; else printf "%s ", $2 }' /etc/resolv.conf 2>/dev/null || true)
+    _og_ns=${_og_ns% }
+    [ -n "$_og_ns" ] || _og_fail "no name server in /etc/resolv.conf. Set RESOLVER to the address of Railway's DNS server."
+    RESOLVER=$_og_ns
+    export RESOLVER
+    ;;
+esac
+if _og_has_other "$RESOLVER" ']A-Za-z0-9.:[ -'; then
+  _og_fail "RESOLVER=$RESOLVER is not a list of addresses."
+fi
+
+# --- the two settings below are checked before anything is written ------------------------
+_og_header=${OPENGYM_REAL_IP_HEADER:-X-Real-IP}
+case "$_og_header" in
+  off | OFF | Off | 0 | false | no | none) _og_header=off ;;
+  *[!A-Za-z0-9-]*) _og_fail "OPENGYM_REAL_IP_HEADER must be a header name such as X-Real-IP, or off." ;;
+esac
+_og_workers=${NGINX_WORKER_PROCESSES:-2}
+case "$_og_workers" in
+  auto) ;;
+  '' | 0 | *[!0-9]*) _og_fail "NGINX_WORKER_PROCESSES must be a number from 1 to 64, or auto." ;;
+  *) [ "$_og_workers" -le 64 ] || _og_fail "NGINX_WORKER_PROCESSES must be a number from 1 to 64, or auto." ;;
+esac
+
+# --- visitor address ------------------------------------------------------------------------
+_og_realip=/etc/nginx/conf.d/00-railway-real-ip.conf
+if [ "$_og_header" = off ]; then
+  rm -f "$_og_realip"
+  _og_header="off (every visitor counts as Railway's edge)"
+else
+  {
+    echo "# Written at start-up by /docker-entrypoint.d/17-railway-opengym.envsh."
+    echo "# Only Railway's edge and services of this project can reach this container."
+    echo "set_real_ip_from 0.0.0.0/0;"
+    echo "set_real_ip_from ::/0;"
+    echo "real_ip_header $_og_header;"
+  } >"$_og_realip" || _og_fail "cannot write $_og_realip"
+fi
+
+# --- worker processes -----------------------------------------------------------------------
+if sed -i -E "s/^([[:space:]]*)worker_processes[[:space:]]+[^;]*;/\1worker_processes $_og_workers;/" /etc/nginx/nginx.conf 2>/dev/null; then
+  :
+else
+  _og_log "WARNING: could not set worker_processes in /etc/nginx/nginx.conf; nginx keeps its own setting."
+fi
+
+_og_log "API upstream http://$_og_backend:$PORT, resolver $RESOLVER, nginx on :$NGINX_PORT with $_og_workers worker(s), real-IP header $_og_header"
+
+unset _og_backend _og_port _og_ns _og_realip _og_header _og_workers
+unset -f _og_log _og_fail _og_has_other
